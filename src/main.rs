@@ -14,21 +14,37 @@ struct Args {
     #[clap(short, long, value_parser)]
     file: Option<String>,
 
-    /// Number of lines that the commit message should have
+    /// Number of lines that the string should have
     #[clap(short, long, value_parser)]
     lines: usize,
 
-    /// Patterns that the commit message should contain
+    /// Patterns that the string should contain
+    #[clap(short, long, alias = "patterns", multiple_values = true, value_parser)]
+    matches: Vec<String>,
+
+    /// Patterns that the string should not contain
     #[clap(short, long, multiple_values = true, value_parser)]
-    patterns: Vec<String>,
+    excludes: Vec<String>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     let num_lines = args.lines;
-    let patterns: Vec<regex::Regex> = args
-        .patterns
+    let matches: Vec<regex::Regex> = args
+        .matches
+        .into_iter()
+        .map(|p| match Regex::new(&p) {
+            Ok(re) => re,
+            Err(e) => {
+                eprintln!("Invalid pattern: {p}: {e}");
+                std::process::exit(1);
+            }
+        })
+        .collect();
+
+    let excludes: Vec<regex::Regex> = args
+        .excludes
         .into_iter()
         .map(|p| match Regex::new(&p) {
             Ok(re) => re,
@@ -47,7 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         buf
     };
 
-    let matches: Vec<&str> = patterns
+    let matches: Vec<&str> = matches
         .iter()
         .filter_map(|p| {
             if p.is_match(&input) {
@@ -56,6 +72,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Some(p.as_str())
             }
         })
+        .collect();
+    let excludes: Vec<(&str, &str)> = excludes
+        .iter()
+        .filter_map(|p| p.find(&input).map(|m| (p.as_str(), m.as_str())))
         .collect();
     let count = input.lines().count();
 
@@ -66,6 +86,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     matches.iter().for_each(|p| {
         eprintln!("pattern `{p}` not matched");
+        invalid = true;
+    });
+    excludes.iter().for_each(|(p, m)| {
+        eprintln!("pattern `{p}` should not be matched but found `{m}`");
         invalid = true;
     });
 
